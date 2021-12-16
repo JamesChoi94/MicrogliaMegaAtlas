@@ -1,0 +1,406 @@
+---
+title: ""
+author: "James Choi"
+date: "Last compiled:`r Sys.Date()`"
+output: 
+  html_document
+editor_options:
+  chunk_output_type: 
+    console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE, fig.align='center', 
+                      tidy.opts=list(width.cutoff=80), tidy=TRUE,
+                      results='hold')
+```
+
+```{r}
+if(!grepl('scripts', getwd())) {setwd('scripts')}
+results_out <- '../results/Integration_Microglia/'
+dir.create(path = results_out)
+```
+
+```{r}
+library('Seurat')
+library('dplyr')
+library('SingleCellExperiment')
+library('ggplot2')
+```
+
+```{r}
+my_theme <- theme_bw() +
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 12),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 12),
+        strip.text = element_text(size = 12),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 12))
+```
+
+Load data
+
+```{r}
+# Hammond2018 <- readRDS('../data/GSE121654_Hammond/Hammond2018.rds')
+Hamel2020 <- readRDS('../data/GSE159638_Hamel/Hamel2020.rds')
+# Lee2021 <- readRDS('../data/GSE153895_Lee/Lee2021.rds')
+Milich2021 <- readRDS('../data/GSE162610_Milich/Milich2021.rds')
+# Safaiyan2021 <- readRDS('../data/GSE166548_Safaiyan/Safaiyan2021.rds')
+Somebang2021 <- readRDS('../data/GSE175430_Somebang/Somebang2021.rds')
+Witcher2021 <- readRDS('../data/GSE160763_Witcher/Witcher2021.rds')
+mg_data <- list(Hammond2018, 
+                Hamel2020,
+                Lee2021, 
+                Milich2021, 
+                Safaiyan2021,
+                Somebang2021,
+                Witcher2021)
+names(mg_data) <- c('Hammond2018', 'Hamel2020', 'Lee2021','Milich2021',
+                    'Safaiyan2021','Somebang2021', 'Witcher2021')
+```
+
+```{r}
+counts <- lapply(mg_data, function(x) x[['counts']])
+metadata <- lapply(mg_data, function(x) x[['metadata']])
+sapply(counts, dim)
+rm(Hammond2018, Hamel2020, Lee2021, Milich2021, Safaiyan2021, Somebang2021, 
+   Witcher2021, mg_data)
+gc()
+```
+
+```{r}
+is_mg <- lapply(metadata, function(x) which(x[['celltype']] == 'Microglia'))
+for (i in 1:length(counts)) {
+  counts[[i]] <- counts[[i]][, is_mg[[i]]]
+  metadata[[i]] <- metadata[[i]][is_mg[[i]], ]
+  print(dim(counts[[i]]))
+  print(dim(metadata[[i]]))
+}
+```
+
+```{r}
+ngenes <- sapply(counts, nrow)
+ngenes
+genes <- sapply(counts, rownames)
+gene_overlap <- eulerr::euler(combinations = genes)
+plot(gene_overlap, quantities = TRUE)
+universe <- Reduce(f = union, x = genes)
+shared_genes <- Reduce(f = intersect, x = genes)
+any(duplicated(shared_genes))
+```
+
+```{r}
+if (!all(sapply(counts, function(x) all(shared_genes %in% rownames(x))))) {
+  stop("Not all shared_genes are in each of the count matrices.")
+} else {
+  counts <- lapply(counts, function(x) x[shared_genes,])
+}
+sapply(counts, dim)
+sapply(counts, function(x) all(rownames(x) %in% shared_genes))
+```
+
+
+```{r}
+counts <- Reduce(f = cbind, x = counts)
+```
+
+
+```{r}
+meta_vars <- sort(Reduce(f = union, x= sapply(metadata, colnames)))
+for (i in 1:length(metadata)) {
+  missing_var <- meta_vars[!meta_vars %in% colnames(metadata[[i]])]
+  if (length(missing_var) > 0) {
+    for (j in 1:length(missing_var)) {
+      metadata[[i]][[missing_var[j]]] <- NA
+    }
+  }
+}
+if (!all(sapply(metadata, function(x) all(meta_vars %in% colnames(x))))) {
+  stop('stop metadata variable columns - some are missing in some datasets')
+} else {
+  metadata <- lapply(metadata, function(x) x[meta_vars])
+}
+sapply(metadata, colnames)
+metadata <- Reduce(f = rbind, x = metadata)
+all(rownames(metadata) == colnames(counts))
+```
+
+
+```{r}
+mg_data <- list(counts = counts, metadata = metadata)
+mg <- CreateSeuratObject(
+  counts = counts, 
+  project = 'microglia_atlas',
+  meta.data = metadata
+)
+# rm(counts, metadata); gc()
+saveRDS(object = mg, file = '../data/mg.rds')
+```
+
+
+QC metrics
+
+```{r}
+study_sample_counts <- mg@meta.data %>%
+  group_by(study) %>%
+  summarise('n' = n_distinct(sample_id))
+study_cols <- c("#cbb53c",
+                "#7e64dd",
+                "#88d244",
+                "#cc4ec0",
+                "#56cd7c",
+                "#da4572",
+                "#d75c2d")
+names(study_cols) <- sort(unique(mg$study))
+sample_cols <- rep(study_cols, times = study_sample_counts$n)
+names(sample_cols) <- NULL
+# names(sample_cols) <- rep(study_sample_counts$study, study_sample_counts$n)
+```
+
+
+```{r}
+p1 <- mg@meta.data %>% 
+  ggplot(mapping = aes(y = sample_id, x = nCount_RNA)) +
+  geom_violin(mapping = aes(fill = sample_id), scale = 'width') +
+  facet_grid(study ~ ., scales = 'free_y', space = 'free_y') +
+  my_theme +
+  theme(strip.text.y = element_text(angle = 0)) +
+  # scale_fill_manual(values = sample_cols) +
+  theme(legend.position = 'none')
+ggsave(filename = paste0(results_out, 'nCount.tiff'),
+       plot = p1, device = 'tiff', height = 15, width = 6)
+```
+
+
+```{r}
+mg <- CreateSeuratObject(
+  counts = counts, 
+  project = 'microglia_atlas',
+  meta.data = metadata
+)
+mg <- NormalizeData(mg)
+mg_sce <- as.SingleCellExperiment(x = mg)
+hvg <- scran::modelGeneVar(
+  x = mg_sce,
+  assay.type = 'logcounts',
+  block = mg_sce$sample_id
+)
+feats <- scran::getTopHVGs(stats = hvg, prop = 0.1)
+tmp_map <- apply(table(mg$sample_id, mg$study), 2, function(x) names(which(x > 0)))
+mg$batch <- mg$sample_id
+mg$batch <- plyr::mapvalues(
+  x = mg$batch,
+  from = c('GSM4955359',
+           'GSM4955360',
+           'GSM4955361',
+           'GSM4955362',
+           'GSM4955363',
+           'GSM4955364',
+           'GSM4955365',
+           'GSM4955366',
+           'GSM4955367',
+           'GSM4955368'),
+  to = c('Milich.Ctrl.batch1',
+         'Milich.Ctrl.batch1',
+         'Milich.Ctrl.batch2',
+         'Milich.1dpi.batch1',
+         'Milich.1dpi.batch1',
+         'Milich.1dpi.batch2',
+         'Milich.3dpi',
+         'Milich.3dpi',
+         'Milich.7dpi',
+         'Milich.7dpi'),
+  warn_missing = FALSE
+)
+mg$batch <- plyr::mapvalues(
+  x = mg$batch,
+  from = c("GSM4836519",
+           "GSM4836525"),
+  to = c('Hamel2020.3dpi.batch2',
+         'Hamel2020.3dpi.batch2'),
+  warn_missing = FALSE
+)
+mg$batch <- plyr::mapvalues(
+  x = mg$batch,
+  from = c("GSM3442006",
+           "GSM3442007",
+           "GSM3442008",
+           "GSM3442009",
+           "GSM3442010",
+           "GSM3442011",
+           "GSM3442012",
+           "GSM3442013",
+           "GSM3442016",
+           "GSM3442017",
+           "GSM3442018",
+           "GSM3442019",
+           "GSM3442020",
+           "GSM3442021",
+           "GSM3442014",
+           "GSM3442015"),
+  to = rep('Hammond.ApoeHi.batch', times = 16),
+  warn_missing = FALSE
+)
+for (i in 1:length(tmp_map)) {
+  mg$batch <- plyr::mapvalues(
+    x = mg$batch, 
+    from = tmp_map[[i]],
+    to = rep(names(tmp_map)[i], times = length(tmp_map[[i]])),
+    warn_missing = FALSE
+  )
+}
+mg <- SplitObject(mg, 'batch')
+mg <- lapply(
+  X = mg,
+  FUN = function(x) {
+    x <- NormalizeData(x)
+    VariableFeatures(x) <- feats
+    x <- ScaleData(x, features = feats)
+    x <- RunPCA(x, features = feats)
+  }
+)
+anchors <- FindIntegrationAnchors(
+  object.list = mg, 
+  anchor.features = feats,
+  normalization.method = 'LogNormalize',
+  # reference = c(1, 4), 
+  reduction = "rpca",
+  # dims = 1:50
+)
+mg <- IntegrateData(anchorset = anchors)
+DefaultAssay(mg) <- 'integrated'
+# Run the standard workflow for visualization and clustering
+mg <- ScaleData(mg, verbose = FALSE)
+mg <- RunPCA(mg, npcs = 30, verbose = FALSE)
+mg <- RunUMAP(mg, reduction = "pca", dims = 1:10)
+mg <- FindNeighbors(mg, reduction = "pca", dims = 1:10)
+mg <- FindClusters(mg, resolution = 0.3)
+mg <- mg %>% 
+  RunPCA(npcs = 10) %>% 
+  FindNeighbors(dims = 1:10) %>% 
+  RunUMAP(dims = 1:10)
+```
+
+```{r}
+my_theme <- theme_bw() +
+  theme(axis.text = element_blank(),
+        axis.title = element_text(size = 12),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 12),
+        strip.text = element_text(size = 12),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 12),
+        axis.ticks = element_blank(), 
+        panel.grid = element_blank())
+p1 <- DimPlot(mg, group.by = 'tissue', raster = FALSE, shuffle = TRUE) +
+  my_theme +
+  labs(title = paste('Microglia N =', ncol(mg)))
+p2 <- DimPlot(mg, group.by = 'study', raster = FALSE, shuffle = TRUE) +
+  my_theme +
+  labs(title = paste('Number of samples =', length(unique(mg$sample_id))))
+ggsave(filename = paste0(results_out, 'tissue_study_umap.tiff'),
+       plot = (p1 | p2), device = 'tiff',
+       height = 6, width = 14.5)
+ggsave(filename = paste0(results_out, 'tissue_study_umap.tiff'), 
+       plot = (p1 | p2), device = 'tiff',
+       height = 4.5, width = 11.5)
+```
+
+```{r}
+DimPlot(mg, label = TRUE, label.size = 5)
+# DefaultAssay(mg)
+deg <- FindAllMarkers(mg, logfc.threshold = 0.7, only.pos = TRUE, assay = 'RNA',
+                      slot = 'data')
+```
+
+```{r}
+DefaultAssay(mg) <- 'RNA'
+# FeaturePlot(mg, 'Msr1', split.by = 'injury', order = TRUE)
+mg$ctrl <- ifelse(test = grepl('Ctrl', x = mg$injury),
+                  yes = 'Ctrl',
+                  no = mg$injury)
+# FeaturePlot(mg, 'Msr1', split.by = 'injury_model')
+shuffle_rows <- function(x) {x[sample(1:nrow(x), nrow(x)),]}
+fplot <- function(x, split) {
+  tmp <- cbind(mg[['RNA']]@data[x,], mg@meta.data[split], mg[['umap']]@cell.embeddings)
+  colnames(tmp)[1] <- x
+  tmp %>% 
+    as.data.frame() %>% 
+  # FetchData(mg, vars = c(x, split, 'UMAP_1', 'UMAP_2')) %>% 
+    shuffle_rows() %>% 
+    ggplot(mapping = aes(x = UMAP_1, y = UMAP_2)) +
+    geom_point(mapping = aes_string(color = x), size = 0.5) +
+    facet_wrap(as.formula(paste(". ~", split))) +
+    scale_color_gradient(low = 'grey90', high = 'red3') +
+    my_theme +
+    guides(color = guide_colorbar())
+}
+fplot('Msr1', 'injury_model')
+```
+
+
+
+
+
+
+
+
+
+```{r}
+mg$ctrl <- ifelse(test = grepl('Ctrl', x = mg$injury),
+                  yes = 'Ctrl',
+                  no = 'Disease')
+mg$ctrl <- paste(mg$study, mg$ctrl, sep = '_')
+mg_sce <- as.SingleCellExperiment(x = mg)
+hvg <- scran::modelGeneVar(
+  x = mg_sce,
+  assay.type = 'logcounts',
+  block = mg_sce$study
+)
+# FDR trends - see how changing HVG FDR affects number of true-positive HVGs
+fdr <- seq(0, 0.95, 0.025)
+all_positive <- c()
+true_positive <- c()
+for (i in 1:length(fdr)) {
+  feats <- scran::getTopHVGs(stats = hvg, fdr.threshold = fdr[i])
+  all_positive[i] <- length(feats)
+  true_positive[i] <- all_positive[i] - (all_positive[i] * fdr[i])
+}
+fdr_trends <- data.frame(fdr, all_positive, true_positive)
+fdr_trends_p <- ggplot(fdr_trends) +
+  geom_point(mapping = aes(x = fdr, y = true_positive)) +
+  my_theme +
+  labs(title = 'scran::getTopHVGs') +
+  xlab(label = 'False-discovery-rate') +
+  ylab(label = 'Number of true positives (variable genes)') +
+  scale_x_continuous(breaks = seq(0, 1, 0.2))
+ggsave(filename = paste0(results_out, 'integration_HVG_FDRthreshold.tiff'),
+       plot = fdr_trends_p, device = 'tiff', height = 3.5, width = 4)
+
+feats <- scran::getTopHVGs(stats = hvg, fdr.threshold = 0.1)
+```
+
+
+```{r}
+mg <- NormalizeData(mg)
+VariableFeatures(mg) <- feats
+mg <- ScaleData(mg)
+mg <- mg %>% 
+  RunPCA(npcs = 10) %>% 
+  FindNeighbors(dims = 1:10) %>% 
+  RunUMAP(dims = 1:10)
+```
+
+
+```{r}
+studies <- unique(mg$study)
+plots <- vector(mode = 'list', length = length(studies))
+names(plots) <- studies
+for (i in 1:length(studies)) {
+  plots[[i]] <- DimPlot(mg[, mg$study == studies[i]])
+}
+DimPlot(mg, group.by = 'sample_id', split.by = 'study') +
+  NoLegend()
+```
+

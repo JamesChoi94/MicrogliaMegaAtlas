@@ -1,0 +1,14 @@
+GSM4559967_Ctl_1
+Preprocessing...
+Simulating doublets...
+Embedding transcriptomes using PCA...
+Calculating doublet scores...
+Automatically set threshold at doublet score = 0.46
+Detected doublet rate = 0.0%
+Estimated detectable doublet fraction = 0.0%
+Overall doublet rate:
+	Expected   = 6.9%
+	Estimated  = 0.0%
+Elapsed time: 13.8 seconds
+
+

@@ -1,0 +1,216 @@
+---
+title: "Preprocessing of Hamel et al. SCI microglia"
+author: "James Choi"
+date: "Last compiled:`r Sys.Date()`"
+output: 
+  html_document
+editor_options:
+  chunk_output_type: 
+    console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE, fig.align='center', 
+                      tidy.opts=list(width.cutoff=80), tidy=TRUE,
+                      results='hold')
+```
+
+```{r}
+if(!grepl('scripts', getwd())) {setwd('scripts')}
+results_out <- '../results/GSE159638_Hamel/'
+data_out <- '../data/GSE159638_Hamel/'
+dir.create(path = data_out)
+```
+
+
+GEO Accession: GSE159638
+
+Data was provided by the following:
+
+Title: Time-resolved single-cell RNAseq profiling identifies a novel Fabp5-expressing subpopulation of inflammatory myeloid cells in chronic spinal cord injury.
+
+Citation: Regan Hamel, Luca Peruzzotti-Jametti, Katherine Ridley, Veronica Testa, Bryan Yu, David Rowitch, John C. Marioni, Stefano Pluchino. Time-resolved single-cell RNAseq profiling identifies a novel Fabp5-expressing subpopulation of inflammatory myeloid cells in chronic spinal cord injury. bioRxiv 2020.10.21.346635; doi: https://doi.org/10.1101/2020.10.21.346635
+
+[Link to paper](https://doi.org/10.1101/2020.10.21.346635)
+
+
+```{r download_decompress}
+dlcheck <- download.file(
+  url = 'https://www.ncbi.nlm.nih.gov/geo/download/?acc=GSE159638&format=file',
+  destfile = paste0(data_out, 'GSE159638_RAW.tar'),
+  mode = 'wb' # the TAR file is a binary
+)
+if (dlcheck != 0) {
+  stop('GSE159638 download unsuccessful')
+} else {
+  untar(tarfile = paste0(data_out, 'GSE159638_RAW.tar'), 
+        exdir = paste0(data_out, 'GSE159638_RAW/'))
+}
+
+dlcheck <- download.file(
+  url = 'https://www.ncbi.nlm.nih.gov/geo/download/?acc=GSE159638&format=file&file=GSE159638%5Fcell%5Fannotations%2Ecsv%2Egz',
+  destfile = paste0(data_out, 'GSE159638_cell_annotations.csv.gz')
+)
+if (dlcheck != 0) {
+  stop('GSE159638_cell_annotations.csv.gz download unsuccessful')
+} else {
+  sample_metadata <- read.csv(
+    file = gzfile(paste0(data_out, 'GSE159638_cell_annotations.csv.gz'))
+  )
+  colnames(sample_metadata)[1] <- 'OligoBarcode'
+}
+```
+
+
+Count matrices are provided directly as .txt files (but like why?). 
+
+From GEO:
+
+> Summary: Here, we first employed a Cx3cr1-CreERT2 mouse model to label Cx3cr1+ cells for FACS isolation. Then we utilized fate-mapping approach (see methods) to investigate the ontology and temporal dynamics of Cx3cr1+ spinal cord MG (RFP+/YFP+) and Cx3cr1+ infiltrating myeloid cells (RFP-/YFP+) via FACS isolation and single-cell RNA sequencing (scRNAseq) in a mouse model of thoracic contusion SCI.
+
+> Overall design: 30,958 cells isolated via FACS from the lesion epicentre. Collected at 1, 3, 10, and 21 days post-SCI and laminectomy-only controls. Each sample comprises tissue from 1-3 mice.
+
+
+Group-sample name key:
+
+* GSM4836508	Ctrl_resident_infiltrating_f
+* GSM4836509	Ctrl_resident_m
+* GSM4836510	D1_infiltrating_f
+* GSM4836511	D1_infiltrating_m
+* GSM4836512	D1_resident_infiltrating_m
+* GSM4836513	D1_resident_infiltrating_m2
+* GSM4836514	D1_resident_infiltrating_m3
+* GSM4836515	D2_infiltrating_f
+* GSM4836516	D2_resident_m
+* GSM4836517	D2_resident_infiltrating_f
+* GSM4836518	D2_resident_infiltrating_m
+* GSM4836519	D3_infiltrating_f
+* GSM4836520	D3_infiltrating_m
+* GSM4836521	D3_resident_f
+* GSM4836522	D3_resident_m
+* GSM4836523	D3_resident _infiltrating_m
+* GSM4836524	D3_resident_infiltrating_m2
+* GSM4836525	D3_resident_infiltrating_m3
+* GSM4836526	D10_infiltrating_f
+* GSM4836527	D10_infiltrating_m
+* GSM4836528	D10_resident_f
+* GSM4836529	D10_resident_infiltrating_m
+* GSM4836530	D10_resident_infiltrating_m2
+* GSM4836531	D21_infiltrating_m
+* GSM4836532	D21_resident_infiltrating_f
+
+
+```{r sample_names}
+sample_key <- 'GSM4836508	Ctrl_resident_infiltrating_f
+GSM4836509	Ctrl_resident_m
+GSM4836510	D1_infiltrating_f
+GSM4836511	D1_infiltrating_m
+GSM4836512	D1_resident_infiltrating_m
+GSM4836513	D1_resident_infiltrating_m2
+GSM4836514	D1_resident_infiltrating_m3
+GSM4836515	D2_infiltrating_f
+GSM4836516	D2_resident_m
+GSM4836517	D2_resident_infiltrating_f
+GSM4836518	D2_resident_infiltrating_m
+GSM4836519	D3_infiltrating_f
+GSM4836520	D3_infiltrating_m
+GSM4836521	D3_resident_f
+GSM4836522	D3_resident_m
+GSM4836523	D3_resident _infiltrating_m
+GSM4836524	D3_resident_infiltrating_m2
+GSM4836525	D3_resident_infiltrating_m3
+GSM4836526	D10_infiltrating_f
+GSM4836527	D10_infiltrating_m
+GSM4836528	D10_resident_f
+GSM4836529	D10_resident_infiltrating_m
+GSM4836530	D10_resident_infiltrating_m2
+GSM4836531	D21_infiltrating_m
+GSM4836532	D21_resident_infiltrating_f'
+sample_key <- unlist(strsplit(sample_key, split = '\n'))
+sample_names <- sapply(
+  X = strsplit(x = sample_key, split = '\t'),
+  `[`, 
+  1
+)
+sample_files <- list.files(
+  path = paste0(data_out, 'GSE159638_RAW/'), 
+  full.names = TRUE
+)
+```
+
+```{r import_counts}
+counts <- vector(mode = 'list', length = length(sample_names))
+names(counts) <- sample_names
+for (i in 1:length(sample_names)) {
+  tmp_file <- grep(pattern = sample_names[i], x = sample_files[i])
+  tmp_file <- sample_files[i]
+  tmp_counts <- read.table(
+    file = gzfile(tmp_file),
+    row.names = 1,
+    header = TRUE,
+    sep = ' '
+  )
+  tmp_counts <- as.matrix(tmp_counts)
+  counts[[i]] <- Matrix::Matrix(data = tmp_counts, sparse = TRUE)
+  message('sample:', sample_names[i],
+          '|nrow:', nrow(counts[[i]]),
+          '|ncol:', ncol(counts[[i]]))
+}
+rm(list = ls()[grepl('tmp', ls())])
+```
+
+Set unique cell barcodes to track back to original study sample.
+
+```{r unique_barcodes}
+barcode_append <- sample_names
+if (length(barcode_append) != length(counts)) {
+  stop('Number of barcode appends not equal to number of count matrices')
+}
+for (i in 1:length(counts)) {
+  colnames(counts[[i]]) <- paste(colnames(counts[[i]]),
+                                 barcode_append[i],
+                                 sep = '_')
+}
+```
+
+Merge count matrices
+
+```{r merge_counts}
+genes <- lapply(X = counts, FUN = rownames)
+if (!all(sapply(genes[2:length(genes)], identical, genes[[1]]))) {
+  stop('Not all count matrices have same genes')
+} else {
+  counts <- Reduce(f = cbind, x = counts)
+}
+dim(counts)
+```
+
+Setup metadata including experimental details.
+
+```{r setup_metadata}
+# Set up metadata and experimental details
+metadata <- data.frame(
+  'study' = 'Hamel2020',
+  'sample_id' = sapply(strsplit(colnames(counts), '_'), `[`, 2),
+  'tissue' = 'spinal_cord',
+  'injury_model' = 'SCI'
+)
+rownames(metadata) <- colnames(counts)
+tmp_inj <- gsub(pattern = '\\t|_', replacement = '.', x = sample_key)
+tmp_inj <- sapply(strsplit(tmp_inj, '\\.'), `[`, 2)
+tmp_inj <- paste('T8contusion', tmp_inj, sep = '.')
+tmp_count <- sapply(strsplit(colnames(counts), '_'), `[`, 2)
+tmp_count <- c(table(tmp_count))
+tmp_inj <- rep(tmp_inj, times = tmp_count)
+metadata$injury <- tmp_inj
+# metadata$injury <- plyr::mapvalues(metadata$injury, 'T8contusion.Ctrl', 'SHAM')
+head(metadata)
+```
+
+Save
+
+```{r save}
+Hamel2020 <- list(counts = counts, metadata = metadata)
+saveRDS(Hamel2020, file = paste0(data_out, 'Hamel2020.rds'))
+```
+

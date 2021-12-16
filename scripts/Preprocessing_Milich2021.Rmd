@@ -1,0 +1,278 @@
+---
+title: "Preprocessing of Milich et al. SCI microglia"
+author: "James Choi"
+date: "Last compiled:`r Sys.Date()`"
+output: 
+  html_document
+editor_options:
+  chunk_output_type: 
+    console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE, fig.align='center', 
+                      tidy.opts=list(width.cutoff=80), tidy=TRUE,
+                      results='hold')
+```
+
+```{r}
+if(!grepl('scripts', getwd())) {setwd('scripts')}
+results_out <- '../results/GSE162610_Milich/'
+data_out <- '../data/GSE162610_Milich/'
+dir.create(path = data_out)
+```
+
+
+## From previous Seurat object
+
+```{r}
+library('Seurat')
+```
+
+```{r}
+myeloid <- readRDS(file = '../../sci_scRNAseq/data/myeloid.rds')
+```
+
+```{r}
+tmp_key <- 'GSM4955359_qc_filtered_feature_bc_matrix_uninj_sample1.txt.gz	5.1 Mb
+GSM4955360_qc_filtered_feature_bc_matrix_uninj_sample2.txt.gz	2.6 Mb
+GSM4955361_qc_filtered_feature_bc_matrix_uninj_sample3.txt.gz	27.5 Mb
+GSM4955362_qc_filtered_feature_bc_matrix_1dpi_sample1.txt.gz	16.5 Mb
+GSM4955363_qc_filtered_feature_bc_matrix_1dpi_sample2.txt.gz	11.7 Mb
+GSM4955364_qc_filtered_feature_bc_matrix_1dpi_sample3.txt.gz	29.3 Mb
+GSM4955365_qc_filtered_feature_bc_matrix_3dpi_sample1.txt.gz	20.5 Mb
+GSM4955366_qc_filtered_feature_bc_matrix_3dpi_sample2.txt.gz	20.1 Mb
+GSM4955367_qc_filtered_feature_bc_matrix_7dpi_sample1.txt.gz	11.8 Mb
+GSM4955368_qc_filtered_feature_bc_matrix_7dpi_sample2.txt.gz	18.5 Mb'
+tmp_key <- unlist(strsplit(tmp_key, '\\n'))
+tmp_key <- sapply(strsplit(tmp_key, '\\t'), `[`, 1)
+sample_names <- sapply(strsplit(tmp_key, '_'), `[`, 1)
+tmp_match <- sapply(strsplit(tmp_key, '\\.'), `[`, 1)
+tmp_match <- sapply(
+  X = strsplit(tmp_match, '_'), 
+  FUN = function(x) {
+    paste(x[length(x) - 1], x[length(x)], sep = '_')
+  }
+)
+names(sample_names) <- tmp_match
+```
+
+```{r}
+tmp_mg <- c('Homeostatic Microglia', 'Inflammatory Microglia', 
+            'Dividing Microglia', 'Migrating Microglia', 'Interferon Myeloid')
+counts <- myeloid[['RNA']]@counts[, myeloid$myeloid_subcluster %in% tmp_mg]
+```
+
+```{r}
+tmp_sample <- strsplit(colnames(counts), '_')
+tmp_sample <- sapply(tmp_sample, function(x) {paste(x[2], x[3], sep = '_')})
+tmp_sample <- plyr::mapvalues(
+  x = tmp_sample,
+  from = names(sample_names),
+  to = sample_names
+)
+colnames(counts) <- sapply(strsplit(colnames(counts), '_'), `[`, 1)
+colnames(counts) <- paste(colnames(counts), tmp_sample, sep = '_')
+```
+
+
+```{r}
+metadata <- data.frame(
+  'study'  = 'Milich2021',
+  'sample_id' = sapply(strsplit(colnames(counts), '_'), `[`, 2),
+  'tissue' = 'spinal_cord',
+  'injury_model' = 'SCI'
+)
+rownames(metadata) <- colnames(counts)
+tmp_inj <- sample_names
+names(tmp_inj) <- sapply(strsplit(names(tmp_inj), '_'), `[`, 1)
+names(tmp_inj) <- paste('T8contusion', names(tmp_inj), sep = '.')
+names(tmp_inj) <- plyr::mapvalues(names(tmp_inj), 'T8contusion.uninj', 'T8contusion.Ctrl')
+metadata$injury <- plyr::mapvalues(
+  x = metadata$sample_id,
+  from = tmp_inj,
+  to = names(tmp_inj)
+)
+head(metadata)
+```
+
+```{r  save}
+# save
+Milich2021 <- list(counts = counts, metadata = metadata)
+saveRDS(Milich2021, file = paste0(data_out, 'Milich2021.rds'))
+```
+
+
+
+## From direct GEO download (I did not do this)
+
+GEO Accession: GSE162610
+
+Data was provided by the following:
+
+Title: Single cell analysis of the cellular heterogeneity and interactions in the injured mouse spinal cord.
+
+Citation: Milich LM, Choi JS, Ryan C, Cerqueira SR, Benavides S, Yahn SL, Tsoulfas P, Lee JK. Single-cell analysis of the cellular heterogeneity and interactions in the injured mouse spinal cord. J Exp Med. 2021 Aug 2;218(8):e20210040. doi: 10.1084/jem.20210040. Epub 2021 Jun 16. PMID: 34132743; PMCID: PMC8212781.
+
+[Link to paper](https://doi.org/10.1084/jem.20210040)
+
+
+```{r download_decompress}
+# counts
+dlcheck <- download.file(
+  url = 'https://www.ncbi.nlm.nih.gov/geo/download/?acc=GSE162610&format=file&file=GSE162610%5Fsci%5Fmat%2Emtx%2Egz',
+  destfile = paste0(data_out, 'GSE162610_sci_mat.mtx.gz')
+)
+if (dlcheck != 0) {
+  stop('GSE162610_sci_mat.mtx.gz download unsuccessful')
+} else {
+  counts <- Matrix::readMM(paste0(data_out, 'GSE162610_sci_mat.mtx.gz'))
+}
+
+# genes
+dlcheck <- download.file(
+  url = 'https://www.ncbi.nlm.nih.gov/geo/download/?acc=GSE162610&format=file&file=GSE162610%5Fgenes%2Etsv%2Egz',
+  destfile = paste0(data_out, 'GSE162610_genes.tsv.gz')
+)
+if (dlcheck != 0) {
+  stop('GSE162610_genes.tsv.gz download unsuccessful')
+} else {
+  genes <- readLines(con = gzfile(paste0(data_out, 'GSE162610_genes.tsv.gz')))
+  if (length(genes) != nrow(counts)) {
+    stop('Number of genes does not match number of rows in count matrix')
+  }
+}
+
+# barcodes
+dlcheck <- download.file(
+  url = 'https://www.ncbi.nlm.nih.gov/geo/download/?acc=GSE162610&format=file&file=GSE162610%5Fbarcodes%2Etsv%2Egz',
+  destfile = paste0(data_out, 'GSE162610_barcodes.tsv.gz')
+)
+if (dlcheck != 0) {
+  stop('GSE162610_barcodes.tsv.gz download unsuccessful')
+} else {
+  barcodes <- readLines(gzfile(paste0(data_out, 'GSE162610_barcodes.tsv.gz')))
+  if (length(barcodes) != ncol(counts)) {
+    stop('Number of genes does not match number of rows in count matrix')
+  }
+}
+
+# barcode metadata
+dlcheck <- download.file(
+  url = 'https://www.ncbi.nlm.nih.gov/geo/download/?acc=GSE162610&format=file&file=GSE162610%5Fbarcode%5Fmetadata%2Etsv%2Egz',
+  destfile = paste0(data_out, 'GSE162610_barcode_metadata.tsv.gz')
+)
+if (dlcheck != 0) {
+  stop('GSE162610_barcode_metadata.tsv.gz download unsuccessful')
+} else {
+  barcode_metadata <- read.table(
+    gzfile(paste0(data_out, 'GSE162610_barcode_metadata.tsv.gz')))
+  if (nrow(barcode_metadata) != ncol(counts)) {
+    stop('Dimensions of barcode_metadata does not match dimensions of count matrix')
+  }
+}
+rm(list = ls()[grepl('tmp', ls())])
+```
+
+
+From GEO:
+
+>Overall design: Single cell RNA sequencing of uninjured and injured spinal cord at 1dpi, 3dpi, and 7dpi of wild-type mice.
+
+
+Group-sample name key:
+
+* GSM4955359_qc_filtered_feature_bc_matrix_uninj_sample1.txt.gz
+* GSM4955360_qc_filtered_feature_bc_matrix_uninj_sample2.txt.gz
+* GSM4955361_qc_filtered_feature_bc_matrix_uninj_sample3.txt.gz
+* GSM4955362_qc_filtered_feature_bc_matrix_1dpi_sample1.txt.gz
+* GSM4955363_qc_filtered_feature_bc_matrix_1dpi_sample2.txt.gz
+* GSM4955364_qc_filtered_feature_bc_matrix_1dpi_sample3.txt.gz
+* GSM4955365_qc_filtered_feature_bc_matrix_3dpi_sample1.txt.gz
+* GSM4955366_qc_filtered_feature_bc_matrix_3dpi_sample2.txt.gz
+* GSM4955367_qc_filtered_feature_bc_matrix_7dpi_sample1.txt.gz
+* GSM4955368_qc_filtered_feature_bc_matrix_7dpi_sample2.txt.gz
+
+
+```{r sample_names}
+tmp_key <- 'GSM4955359_qc_filtered_feature_bc_matrix_uninj_sample1.txt.gz	5.1 Mb
+GSM4955360_qc_filtered_feature_bc_matrix_uninj_sample2.txt.gz	2.6 Mb
+GSM4955361_qc_filtered_feature_bc_matrix_uninj_sample3.txt.gz	27.5 Mb
+GSM4955362_qc_filtered_feature_bc_matrix_1dpi_sample1.txt.gz	16.5 Mb
+GSM4955363_qc_filtered_feature_bc_matrix_1dpi_sample2.txt.gz	11.7 Mb
+GSM4955364_qc_filtered_feature_bc_matrix_1dpi_sample3.txt.gz	29.3 Mb
+GSM4955365_qc_filtered_feature_bc_matrix_3dpi_sample1.txt.gz	20.5 Mb
+GSM4955366_qc_filtered_feature_bc_matrix_3dpi_sample2.txt.gz	20.1 Mb
+GSM4955367_qc_filtered_feature_bc_matrix_7dpi_sample1.txt.gz	11.8 Mb
+GSM4955368_qc_filtered_feature_bc_matrix_7dpi_sample2.txt.gz	18.5 Mb'
+tmp_key <- unlist(strsplit(tmp_key, '\\n'))
+tmp_key <- sapply(strsplit(tmp_key, '\\t'), `[`, 1)
+sample_names <- sapply(strsplit(tmp_key, '_'), `[`, 1)
+tmp_match <- sapply(strsplit(tmp_key, '\\.'), `[`, 1)
+tmp_match <- sapply(
+  X = strsplit(tmp_match, '_'), 
+  FUN = function(x) {
+    paste(x[length(x) - 1], x[length(x)], sep = '_')
+  }
+)
+names(sample_names) <- tmp_match
+rm(list = ls()[grepl('tmp', ls())])
+```
+
+
+```{r unique_barcodes}
+tmp_match <- sapply(
+  X = strsplit(barcodes, '_'), 
+  FUN = function(x) {
+    paste(x[length(x) - 1], x[length(x)], sep = '_')
+  }
+)
+tmp_match <- plyr::mapvalues(
+  x = tmp_match,
+  from = names(sample_names),
+  to = sample_names
+)
+tmp_barcodes <- paste(
+  sapply(strsplit(barcodes, '_'), `[`, 1),
+  tmp_match,
+  sep = '_'
+)
+colnames(counts) <- tmp_barcodes
+rownames(counts) <- genes
+```
+
+
+Setup metadata including experimental details.
+
+```{r setup_metadata}
+metadata <- data.frame(
+  'study'  = 'Milich2021',
+  'sample_id' = sapply(strsplit(colnames(counts), '_'), `[`, 2),
+  'tissue' = 'spinal_cord',
+  'injury_model' = 'SCI'
+)
+rownames(metadata) <- colnames(counts)
+tmp_inj <- sample_names
+names(tmp_inj) <- sapply(strsplit(names(tmp_inj), '_'), `[`, 1)
+names(tmp_inj) <- paste('SCI', names(tmp_inj), sep = '.')
+names(tmp_inj) <- plyr::mapvalues(names(tmp_inj), 'SCI.uninj', 'SHAM')
+metadata$injury <- plyr::mapvalues(
+  x = metadata$sample_id,
+  from = tmp_inj,
+  to = names(tmp_inj)
+)
+head(metadata)
+```
+
+Save
+
+```{r  save}
+# save
+Milich2021 <- list(counts = counts, metadata = metadata)
+saveRDS(Milich2021, file = paste0(data_out, 'Milich2021.rds'))
+```
+
+```{r}
+sessionInfo()
+```
+

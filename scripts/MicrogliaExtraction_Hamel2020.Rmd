@@ -1,0 +1,199 @@
+---
+title: "Microglia extraction from Hamel et al."
+author: "James Choi"
+date: "Last compiled:`r Sys.Date()`"
+output: 
+  html_document
+editor_options:
+  chunk_output_type: 
+    console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE, fig.align='center', 
+                      tidy.opts=list(width.cutoff=80), tidy=TRUE,
+                      results='hold')
+```
+
+```{r}
+if(!grepl('scripts', getwd())) {setwd('scripts')}
+results_out <- '../results/MicrogliaExtraction_Hamel2020/'
+data_out <- '../data/GSE159638_Hamel/'
+dir.create(path = results_out)
+```
+
+```{r}
+library('Seurat')
+library('dplyr')
+library('ggplot2')
+```
+
+```{r}
+my_theme <- theme_bw() +
+  theme(axis.text = element_blank(),
+        axis.title = element_text(size = 12),
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 12),
+        strip.text = element_text(size = 12),
+        plot.title = element_text(size = 14),
+        plot.subtitle = element_text(size = 12),
+        axis.ticks = element_blank(), 
+        panel.grid = element_blank())
+```
+
+```{r}
+Hamel2020 <- readRDS(file = paste0(data_out, 'Hamel2020.rds'))
+```
+
+```{r}
+dat <- CreateSeuratObject(
+  counts = Hamel2020$counts,
+  project = 'Hamel2020',
+  meta.data = Hamel2020$metadata
+)
+```
+
+# ```{r}
+# p1 <- VlnPlot(dat, c('nFeature_RNA', 'nCount_RNA'), pt.size = 0,
+#               group.by = 'sample_id')
+# filter_by_mad <- function(x, nmad = 3) {
+#   mad_max <- median(x) + nmad * mad(x, constant = 1)
+#   mad_min <- median(x) - nmad * mad(x, constant = 1)
+#   message('mad_max:', mad_max)
+#   message('mad_min:', mad_min)
+#   return((x > mad_min))
+# }
+# keep_nCount <- filter_by_mad(dat$nCount_RNA)
+# table(keep_nCount)
+# keep_nFeature <- filter_by_mad(dat$nFeature_RNA)
+# table(keep_nFeature)
+# dat <- dat[, keep_nCount & keep_nFeature]
+# p2 <- VlnPlot(dat, c('nFeature_RNA', 'nCount_RNA'), pt.size = 0)
+# ```
+
+```{r}
+dat <- dat %>% 
+  NormalizeData() %>% 
+  FindVariableFeatures() %>% 
+  ScaleData() %>% 
+  RunPCA() %>% 
+  FindNeighbors(dims = 1:10) %>% 
+  RunUMAP(dims = 1:10) %>% 
+  FindClusters(resolution = 0.6)
+```
+
+```{r metadata_umap}
+# colnames(dat@meta.data)
+p1 <- DimPlot(dat, group.by = 'sample_id', shuffle = TRUE) + 
+  my_theme
+p2 <- DimPlot(dat, group.by = 'injury', shuffle = TRUE) + 
+  my_theme
+p3 <- DimPlot(dat, group.by = 'RNA_snn_res.0.6', shuffle = TRUE,
+              label = TRUE, label.size = 4) + 
+  my_theme
+p4 <- (p1 | p2 | p3)
+# p4
+ggsave(filename = paste0(results_out, 'Hamel2020_metadataUMAP.tiff'),
+       plot = p4, device = 'tiff', height = 5, width = 15)
+```
+
+```{r mg_markers}
+# Homeostatic microglia genes
+mg_markers <- c('P2ry12','Tmem119','C1qa','Hexb','Csf1r','Irf8')
+p1 <- FeaturePlot(
+  object = dat, 
+  features = mg_markers,
+  order = TRUE,
+  ncol = length(mg_markers)/2
+) & my_theme
+ggsave(filename = paste0(results_out, 'Hamel2020_MicrogliaMarkerUMAP.tiff'),
+       plot = p1, device = 'tiff', height = 5, width = 9)
+
+# Injury associated microglia genes
+dam_markers <- c('Msr1','Apoe','Top2a','Lpl','Axl','Spp1')
+p2 <- FeaturePlot(
+  object = dat, 
+  features = dam_markers,
+  order = TRUE,
+  ncol = length(dam_markers)/2
+) & my_theme
+ggsave(filename = paste0(results_out, 'Hamel2020_DAMMarkerUMAP.tiff'),
+       plot = p2, device = 'tiff', height = 5, width = 9)
+
+# non-microglia genes
+other_markers <- c('Ccr2','Ly6c2','Ms4a7','Cd74','Cd3e','Mrc1', 'Ly6g',
+                   'Col1a1','Pecam1','Gfap', 'Isg15', 'Ascl1')
+p3 <- FeaturePlot(
+  object = dat, 
+  features = other_markers,
+  order = TRUE,
+  ncol = length(other_markers)/3
+) & my_theme
+ggsave(filename = paste0(results_out, 'Hamel2020_NonMicrogliaMarkerUMAP.tiff'),
+       plot = p3, device = 'tiff', height = 7.5, width = 12.5)
+```
+
+Cell-type assignment
+
+```{r}
+if (all(rownames(dat@meta.data) == rownames(Hamel2020$metadata))) {
+  Hamel2020$metadata$celltype <- plyr::mapvalues(
+    x = dat@meta.data$RNA_snn_res.0.6,
+    from = levels(dat@meta.data$RNA_snn_res.0.6),
+    to = c('Microglia',
+           'Microglia',
+           'nonMG',
+           'nonMG',
+           'Microglia',
+           'nonMG',
+           'Microglia',
+           'nonMG',
+           'Microglia',
+           'Microglia',
+           'nonMG',
+           'nonMG',
+           'nonMG',
+           'Microglia',
+           'nonMG',
+           'nonMG')
+  )
+  dat$celltype <-  plyr::mapvalues(
+    x = dat@meta.data$RNA_snn_res.0.6,
+    from = levels(dat@meta.data$RNA_snn_res.0.6),
+    to = c('Microglia',
+           'Microglia',
+           'nonMG',
+           'nonMG',
+           'Microglia',
+           'nonMG',
+           'Microglia',
+           'nonMG',
+           'Microglia',
+           'Microglia',
+           'nonMG',
+           'nonMG',
+           'nonMG',
+           'Microglia',
+           'nonMG',
+           'nonMG')
+  )
+}
+```
+
+```{r}
+nMG <- table(Hamel2020$metadata$celltype)['Microglia']
+p1 <- DimPlot(dat, group.by = 'celltype', shuffle = TRUE, label = TRUE) + 
+  my_theme +
+  labs(title = paste0('Number of MG:', nMG))
+p2 <- DimPlot(dat, group.by = 'RNA_snn_res.0.6', shuffle = TRUE,
+              label = TRUE, label.size = 4) + 
+  my_theme
+p3 <- (p1 | p2) 
+ggsave(filename = paste0(results_out, 'Hamel2020_celltypeUMAP.tiff'),
+       plot = p3, device = 'tiff', height = 5, width = 12)
+```
+
+```{r}
+saveRDS(Hamel2020, file = paste0(data_out, 'Hamel2020.rds'))
+```
+

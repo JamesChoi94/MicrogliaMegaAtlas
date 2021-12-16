@@ -1,0 +1,201 @@
+---
+title: "Preprocessing of Somebang et al. TBI microglia"
+author: "James Choi"
+date: "Last compiled:`r Sys.Date()`"
+output: 
+  html_document
+editor_options:
+  chunk_output_type: 
+    console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE, fig.align='center', 
+                      tidy.opts=list(width.cutoff=80), tidy=TRUE,
+                      results='hold')
+```
+
+```{r}
+if(!grepl('scripts', getwd())) {setwd('scripts')}
+results_out <- '../results/GSE175430_Somebang/'
+data_out <- '../data/GSE175430_Somebang/'
+dir.create(path = results_out)
+dir.create(path = data_out)
+```
+
+Data was provided by the following:
+
+Title: CCR2 deficiency alters activation of microglia subsets in traumatic brain injury.
+
+Citation: Kerri Somebang, Joshua Rudolph, Isabella Imhof, Luyi Li, Erene C. Niemi, Judy Shigenaga, Huy Tran, T. Michael Gill, Iris Lo, Brian A. Zabel, Gabriela Schmajuk, Brian T. Wipke, Stefka Gyoneva, Luke Jandreski, Michael Craft, Gina Benedetto, Edward D. Plowey, Israel Charo, James Campbell, Chun Jimmie Ye, S. Scott Panter, Mary C. Nakamura, Walter Eckalbar, Christine L. Hsieh. CCR2 deficiency alters activation of microglia subsets in traumatic brain injury. Cell Reports, Volume 36, Issue 12, 2021, 109727, ISSN 2211-1247, https://doi.org/10.1016/j.celrep.2021.109727.
+
+[Link to paper](https://doi.org/10.1016/j.celrep.2021.109727)
+
+
+```{r download_decompress}
+dlcheck <- download.file(
+  url = 'https://www.ncbi.nlm.nih.gov/geo/download/?acc=GSE175430&format=file',
+  destfile = paste0(data_out, 'GSE175430_RAW.tar'),
+  mode = 'wb' # the TAR file is a binary
+)
+if (dlcheck != 0) {
+  stop('GSE175430 download unsuccessful')
+} else {
+  untar(tarfile = paste0(data_out, 'GSE175430_RAW.tar'), 
+        exdir = paste0(data_out, 'GSE175430_RAW/'))
+}
+tmp_tar <- list.files(path = paste0(data_out, 'GSE175430_RAW/'),
+                      full.names = TRUE)
+for (i in 1:length(tmp_tar)) {
+  tmp_contents <- untar(tarfile = tmp_tar[i],
+                        list = TRUE)
+  tmp_extract <- c('barcodes.tsv','genes.tsv','matrix.mtx')
+  tmp_extract <- paste(tmp_extract, collapse = '|')
+  tmp_contents <- tmp_contents[grep(tmp_extract, tmp_contents)]
+  tmp_sample <- unique(sapply(strsplit(tmp_contents, '/'), `[`, 1))
+  untar(tarfile = tmp[i],
+        files = tmp_contents, 
+        exdir = paste0(data_out, 'GSE175430_RAW/'))
+}
+counts_out <- paste0(data_out, 'GSE175430_RAW/') # update data out folder
+rm(list = ls()[grepl('tmp', ls())])
+```
+
+
+From GEO:
+
+>Overall design: Leukocytes were isolated from ipsilateral brain tissues from four groups of mice: wildtype (WT) TBI mice (n=3), Ccr2-/- TBI mice (n=3), WT normal (n=3), Ccr2-/- normal (n=2). CD45+ Ly6G- LIVE cells were sorted by flow cytometry, and cells were processed for single-cell RNA sequencing using the 10X Genomics platform v3 chemistry.
+
+
+Group-sample name key:
+
+* GSM5333250_CLH18out.tar.gz:	WT TBI d4_1
+* GSM5333251_CLH19out.tar.gz:	WT TBI d4_2
+* GSM5333252_CLH20out.tar.gz:	WT TBI d4_3
+* GSM5333253_CLH21out.tar.gz:	CCR2 KO TBI d4_4
+* GSM5333254_CLH22out.tar.gz:	CCR2 KO TBI d4_5
+* GSM5333255_CLH23out.tar.gz:	CCR2 KO TBI d4_6
+* GSM5333256_CLH24out.tar.gz:	WT normal_7
+* GSM5333257_CLH25out.tar.gz:	WT normal_8
+* GSM5333258_CLH26out.tar.gz:	WT normal_9
+* GSM5333259_CLH27out.tar.gz: CCR2 KO normal_10
+* GSM5333260_CLH28out.tar.gz:	CCR2 KO normal_11
+
+
+```{r wt_data}
+wt_files <- c('GSM5333250_CLH18out.tar.gz',
+              'GSM5333251_CLH19out.tar.gz',
+              'GSM5333252_CLH20out.tar.gz',
+              'GSM5333256_CLH24out.tar.gz', 
+              'GSM5333257_CLH25out.tar.gz',
+              'GSM5333258_CLH26out.tar.gz')
+wt <- sapply(strsplit(wt_files, '_'), `[`, 2)
+wt <- sapply(strsplit(wt, '\\.'), `[`, 1)
+wt <- paste(wt, collapse = '|')
+```
+
+
+The data are provided as the full, unfiltered count matrix i.e. 
+`DropletUtils::emptyDrops()` needs to be run.
+
+
+```{r emptydrops}
+# remove ccr2 ko animals
+sample_names <- list.dirs(counts_out, recursive = FALSE)
+sample_names <- sample_names[grepl(wt, sample_names)]
+counts <- vector(mode = 'list', length = length(sample_names))
+alternate_fdr <- vector(mode = 'list', length = length(sample_names))
+for (i in 1:length(sample_names)) {
+  tmp_counts <- Seurat::Read10X(
+    data.dir = sample_names[i],
+    strip.suffix = TRUE,
+    gene.column = 2
+  )
+  tmp_ranks <- DropletUtils::barcodeRanks(
+    m = tmp_counts,
+    lower = 200,
+    fit.bounds = c(200, 1e6)
+  )
+  tmp_knee <- tmp_ranks@metadata$knee
+  tmp_inflection <- tmp_ranks@metadata$inflection
+  message(sample_names[i], '|knee:', tmp_knee, '|inflection:', tmp_inflection)
+  tmp_drops <- DropletUtils::emptyDrops(
+    m = tmp_counts,
+    retain = tmp_knee,
+    lower = tmp_inflection,
+    BPPARAM = BiocParallel::SnowParam(workers = 3, type = 'SOCK')
+  )
+  # tmp_keep <- which(tmp_drops$FDR < 0.01)
+  tmp_keep <- which(tmp_drops$FDR < 0.001)
+  message(sample_names[i], ': ', length(tmp_keep))
+  counts[[i]] <- tmp_counts[, tmp_keep]
+  gc()
+}
+rm(list = ls()[grepl('tmp', ls())])
+```
+
+The number of cells is fairly different from the reported number of cells in the
+original publication. From above, we get `sum(sapply(counts, ncol)[1:3])` cells 
+total in the SHAM animals and `sum(sapply(counts, ncol)[4:6])` cells in the TBI 
+animals. 
+
+From the paper:
+> ScRNA-seq was performed, cell doublets were excluded,
+and data were analyzed from microglia and circulating leukocytes from 35,405 individual transcriptomes of WT cells after
+TBI, 28,918 Ccr2-/- cells after TBI, 33,365 WT cells without
+TBI, and 14,029 Ccr2-/- cells without TBI expressing an
+average of 22,701 genes/sample.
+
+Set unique cell barcodes to track back to original study sample.
+
+```{r unique_barcodes}
+barcode_append <- strsplit(wt_files, '\\.')
+barcode_append <- sapply(barcode_append, `[`, 1)
+barcode_append <- gsub(pattern = '_', replacement = '.', x = barcode_append)
+if (length(barcode_append) != length(counts)) {
+  stop('Number of barcode appends not equal to number of count matrices')
+}
+for (i in 1:length(counts)) {
+  colnames(counts[[i]]) <- paste(colnames(counts[[i]]),
+                                 barcode_append[i],
+                                 sep = '_')
+}
+```
+
+Create Seurat objects
+
+```{r seurat_objects}
+library('Seurat')
+genes <- lapply(X = counts, FUN = rownames)
+if (!all(sapply(genes[2:length(genes)], identical, genes[[1]]))) {
+  stop('Not all count matrices have same genes')
+} else {
+  counts <- Reduce(f = cbind, x = counts)
+}
+# dim(counts)
+
+# Set up metadata and experimental details
+tmp_inj_mapping <- c('GSM5333250.CLH18out' = 'CCI.4dpi',
+                     'GSM5333251.CLH19out' = 'CCI.4dpi',
+                     'GSM5333252.CLH20out' = 'CCI.4dpi',
+                     'GSM5333256.CLH24out' = 'CCI.Ctrl', 
+                     'GSM5333257.CLH25out' = 'CCI.Ctrl',
+                     'GSM5333258.CLH26out' = 'CCI.Ctrl')
+metadata <- data.frame(
+  'study'  = 'Somebang2021',
+  'sample_id' = sapply(strsplit(colnames(counts), '_'), `[`, 2),
+  'tissue' = 'cortex',
+  'injury_model' = 'TBI'
+)
+rownames(metadata) <- colnames(counts)
+metadata$injury <- plyr::mapvalues(
+  x = metadata$sample_id,
+  from = names(tmp_inj_mapping),
+  to = tmp_inj_mapping
+)
+
+# save
+Somebang2021 <- list(counts = counts, metadata = metadata)
+saveRDS(Somebang2021, file = paste0(data_out, 'Somebang2021.rds'))
+```
+
