@@ -293,17 +293,37 @@ my_theme <- theme_bw() +
         plot.subtitle = element_text(size = 12),
         axis.ticks = element_blank(), 
         panel.grid = element_blank())
-p1 <- DimPlot(mg, group.by = 'tissue', raster = FALSE, shuffle = TRUE) +
+tissue_cols <- c("#e24d30",
+                 "#d0ca30",
+                 "#6ed54f",
+                 "#6b55dc",
+                 "#bf49d2",
+                 "#ff5eb5")
+names(tissue_cols) <- names(table(mg$tissue))
+p1 <- DimPlot(mg, group.by = 'tissue', raster = TRUE, shuffle = TRUE) +
   my_theme +
-  labs(title = paste('Microglia N =', ncol(mg)))
+  labs(title = paste('Microglia N =', ncol(mg))) +
+  scale_color_manual(values = tissue_cols)
+study_cols <- c("#e83079",
+                "#e14f2c",
+                "#d0ca30",
+                "#6ed54f",
+                "#5d5be0",
+                "#a048d3",
+                "#d644bf")
+names(study_cols) <- names(table(mg$study))
 p2 <- DimPlot(mg, group.by = 'study', raster = FALSE, shuffle = TRUE) +
   my_theme +
-  labs(title = paste('Number of samples =', length(unique(mg$sample_id))))
+  labs(title = paste('Number of samples =', length(unique(mg$sample_id)))) +
+  scale_color_manual(values = study_cols)
 ggsave(filename = paste0(results_out, 'tissue_study_umap.tiff'),
        plot = (p1 | p2), device = 'tiff',
        height = 6, width = 14.5)
 ggsave(filename = paste0(results_out, 'tissue_study_umap.tiff'), 
        plot = (p1 | p2), device = 'tiff',
+       height = 4.5, width = 11.5)
+ggsave(filename = paste0(results_out, 'tissue_study_umap.png'), 
+       plot = (p1 | p2), device = 'png',
        height = 4.5, width = 11.5)
 ```
 
