@@ -1,6 +1,17 @@
 # MicrogliaMegaAtlas
 
-The biggest microglia single-cell RNAseq dataset ever
+The biggest microglia single-cell RNAseq dataset ever(!)
+
+There are two main aims to this project:
+
+1. Generate a single-cell atlas to map the entire transcriptional repertoire of microglia and their response to all possible perturbations (*e.g.* neurodegeneration, traumatic injury, drug exposure, etc.)
+2. Test the hypothesis that the microglial response to neurodegenerative injury is similar to the microglial response to traumatic injury.
+
+Two sub-aims of this project are:
+
+1. Use *in silico* cell lineage-tracing (*i.e.* trajectory inference) to identify transcriptional determinants of microglial proliferation and characterize microglia progeny - are they neuroprotective/neurotoxic?
+2. Identify compounds/drugs that can alter microglial trajectories towards neuroprotective transcriptional phenotypes.
+
 
 ![UMAP of microglia across tissue and disease](results/Integration_Microglia/tissue_study_umap.png)
 
